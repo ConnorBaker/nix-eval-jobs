@@ -1,6 +1,7 @@
 // doesn't exist on macOS
 // IWYU pragma: no_include <bits/types/struct_rusage.h>
 
+#include <memory>
 #include <nix/expr/eval-error.hh>
 #include <nix/util/pos-idx.hh>
 #include <nix/util/terminal.hh>
@@ -47,6 +48,7 @@
 
 #include "worker.hh"
 #include "drv.hh"
+#include "prefix-logger.hh"
 #include "response.hh"
 #include "buffered-io.hh"
 #include "eval-args.hh"
@@ -318,7 +320,8 @@ auto shouldRestart(const MyArgs &args) -> bool {
 
 auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
                        nix::AutoCloseFD &toParent, nix::Bindings &autoArgs,
-                       nix::Value *vRoot, MyArgs &args) -> bool {
+                       nix::Value *vRoot, MyArgs &args,
+                       PrefixLogger *prefixLogger) -> bool {
     /* Wait for the collector to send us a job name. */
     if (tryWriteLine(toParent.get(), "next") < 0) {
         return false; // main process died
@@ -337,6 +340,7 @@ auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
 
     auto path = nlohmann::json::parse(line.substr(3));
     auto attrPathS = attrPathJoin(path);
+    prefixLogger->setAttrPath(attrPathS);
 
     /* Evaluate it and send info back to the collector. */
     Response::Payload payload = [&]() -> Response::Payload {
@@ -360,13 +364,13 @@ auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
             auto msg = oss.str();
 
             // Print to STDERR for Hydra UI
-            std::cerr << msg << "\n";
+            std::cerr << "[" << attrPathS << "] " << msg << "\n";
             return Response::Error{nix::filterANSIEscapes(msg, true)};
         } catch (const std::exception &e) {
             // FIXME: for some reason the catch block above doesn't trigger on
             // macOS (?)
             const auto *msg = e.what();
-            std::cerr << msg << '\n';
+            std::cerr << "[" << attrPathS << "] " << msg << '\n';
             return Response::Error{
                 .error = nix::filterANSIEscapes(msg, true),
                 // Nix 2.34 throws `StackOverflowError` whreas before, Nix
@@ -390,6 +394,8 @@ auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
         return false; // main process died
     }
 
+    prefixLogger->setAttrPath("");
+
     /* Check if we should restart due to memory usage */
     return !shouldRestart(args);
 }
@@ -406,12 +412,16 @@ void worker(
         args.lookupPath, evalStore, nix::fetchSettings, nix::evalSettings);
     nix::Bindings &autoArgs = *args.getAutoArgs(*state);
 
+    auto prefixLogger = std::make_unique<PrefixLogger>(std::move(nix::logger));
+    auto *prefixLoggerPtr = prefixLogger.get();
+    nix::logger = std::move(prefixLogger);
+
     nix::Value *vRoot = initializeRootValue(state, autoArgs, args);
 
     LineReader fromReader(fromParent.release());
 
     while (processJobRequest(*state, fromReader, toParent, autoArgs, vRoot,
-                             args)) {
+                             args, prefixLoggerPtr)) {
         // Continue processing jobs until we need to exit
     }
 

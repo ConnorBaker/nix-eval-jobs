@@ -7,7 +7,8 @@ common_src = [
   'worker.cc',
   'strings-portable.cc',
   'output-stream-lock.cc',
-  'daemon-settings.cc'
+  'daemon-settings.cc',
+  'prefix-logger.cc',
 ]
 
 common_deps = [

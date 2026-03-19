@@ -54,6 +54,35 @@
         brokenPkgs = {
           brokenPackage = throw "this is an evaluation error";
         };
+        tracePkgs = {
+          traceJob = builtins.trace "trace message from traceJob" (derivation {
+            name = "traceJob";
+            inherit system;
+            builder = "/bin/sh";
+            args = [
+              "-c"
+              "echo done > $out"
+            ];
+          });
+        };
+        nestedPkgs = {
+          nested = {
+            recurseForDerivations = true;
+            deep = {
+              recurseForDerivations = true;
+              brokenJob = throw "nested evaluation error";
+              traceJob = builtins.trace "nested trace message" (derivation {
+                name = "nestedTraceJob";
+                inherit system;
+                builder = "/bin/sh";
+                args = [
+                  "-c"
+                  "echo done > $out"
+                ];
+              });
+            };
+          };
+        };
         infiniteRecursionPkgs = {
           packageWithInfiniteRecursion =
             let

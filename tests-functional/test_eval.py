@@ -523,6 +523,147 @@ def test_recursion_error() -> None:
         assert "max-call-depth exceeded" in result["error"]
 
 
+def split_stderr_blocks(stderr: str) -> list[tuple[str, str]]:
+    """Split stderr into (prefix, body) blocks.
+
+    Each block starts with a line beginning with ``[attrPath]``.
+    Continuation lines (indented error details) belong to the same block.
+    Lines that don't start with ``[`` (e.g. unprefixed warnings from init)
+    are returned with an empty prefix.
+    """
+    blocks: list[tuple[str, str]] = []
+    current_prefix = ""
+    current_lines: list[str] = []
+
+    for line in stderr.splitlines():
+        if line.startswith("["):
+            # Flush previous block
+            if current_lines:
+                blocks.append((current_prefix, "\n".join(current_lines)))
+            # Parse prefix: everything up to and including the first "]"
+            bracket_end = line.index("]") + 1
+            current_prefix = line[:bracket_end]
+            current_lines = [line[bracket_end:]]
+        else:
+            current_lines.append(line)
+
+    if current_lines:
+        blocks.append((current_prefix, "\n".join(current_lines)))
+
+    return blocks
+
+
+def assert_prefixed_block(stderr: str, attr_path: str, message: str) -> None:
+    """Assert that *message* appears inside the stderr block prefixed with [attr_path]."""
+    blocks = split_stderr_blocks(stderr)
+    prefix = f"[{attr_path}]"
+    matching = [body for pfx, body in blocks if pfx == prefix]
+    assert matching, f"No stderr block starts with {prefix}"
+    assert any(message in body for body in matching), (
+        f"Message {message!r} not found in any {prefix} block.\nBlocks: {matching!r}"
+    )
+
+
+def assert_prefixed_line(stderr: str, attr_path: str, message: str) -> None:
+    """Assert a single stderr line contains both [attr_path] and *message*."""
+    prefix = f"[{attr_path}]"
+    for line in stderr.splitlines():
+        if prefix in line and message in line:
+            return
+    raise AssertionError(f"No single stderr line contains both {prefix!r} and {message!r}")
+
+
+def test_stderr_attr_prefix_on_eval_error() -> None:
+    """Test that stderr output from eval errors includes the [attrPath] prefix."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.brokenPkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+    )
+    # JSON output on stdout should still work correctly
+    result = json.loads(res.stdout)
+    assert result["attr"] == "brokenPackage"
+    assert "this is an evaluation error" in result["error"]
+
+    # The multi-line error block on stderr must start with [brokenPackage]
+    # and the error text must appear within that same block
+    assert_prefixed_block(res.stderr, "brokenPackage", "this is an evaluation error")
+
+    # Unprefixed lines (e.g. setting warnings from init) must NOT carry a prefix
+    blocks = split_stderr_blocks(res.stderr)
+    unprefixed = [body for pfx, body in blocks if pfx == ""]
+    for body in unprefixed:
+        assert "[brokenPackage]" not in body
+
+
+def test_stderr_attr_prefix_on_trace() -> None:
+    """Test that builtins.trace output includes the [attrPath] prefix via PrefixLogger."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.tracePkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    # JSON output should contain the derivation
+    result = json.loads(res.stdout)
+    assert result["attr"] == "traceJob"
+    assert result["name"] == "traceJob"
+
+    # Trace output is a single line; prefix and message must be on the same line
+    assert_prefixed_line(res.stderr, "traceJob", "trace message from traceJob")
+
+
+def test_stderr_attr_prefix_nested_path() -> None:
+    """Test that nested attribute paths appear as full dotted paths in stderr prefixes."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.nestedPkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+    )
+    results = [json.loads(r) for r in res.stdout.split("\n") if r]
+
+    # Should have both the error and the successful derivation
+    error_result = next(r for r in results if "error" in r)
+    assert error_result["attr"] == "nested.deep.brokenJob"
+    assert "nested evaluation error" in error_result["error"]
+
+    trace_result = next(r for r in results if r.get("name") == "nestedTraceJob")
+    assert trace_result["attr"] == "nested.deep.traceJob"
+
+    # Error block must be prefixed with the full dotted path and contain the error text
+    assert_prefixed_block(res.stderr, "nested.deep.brokenJob", "nested evaluation error")
+
+    # Trace line must have the full dotted path and message on the same line
+    assert_prefixed_line(res.stderr, "nested.deep.traceJob", "nested trace message")
+
+
 def test_no_instantiate_mode() -> None:
     """Test that --no-instantiate flag works correctly"""
     with TemporaryDirectory() as tempdir:
