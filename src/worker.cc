@@ -1,18 +1,20 @@
 // doesn't exist on macOS
 // IWYU pragma: no_include <bits/types/struct_rusage.h>
 
-#include <nix/expr/eval-error.hh>
-#include <nix/util/pos-idx.hh>
-#include <nix/util/terminal.hh>
-#include <nix/expr/attr-path.hh>
-#include <nix/store/local-fs-store.hh>
-#include <nix/store/globals.hh>
-#include <nix/cmd/installable-flake.hh>
-#include <nix/expr/value-to-json.hh>
-#include <sys/resource.h>
-#include <nlohmann/json.hpp>
 #include <cstdio>
 #include <iostream>
+#include <memory>
+#include <nix/cmd/installable-flake.hh>
+#include <nix/expr/attr-path.hh>
+#include <nix/expr/eval-error.hh>
+#include <nix/expr/value-to-json.hh>
+#include <nix/store/globals.hh>
+#include <nix/store/local-fs-store.hh>
+#include <nix/util/finally.hh>
+#include <nix/util/pos-idx.hh>
+#include <nix/util/terminal.hh>
+#include <nlohmann/json.hpp>
+#include <sys/resource.h>
 // NOLINTBEGIN(modernize-deprecated-headers)
 // misc-include-cleaner wants this header rather than the C++ version
 #include <stdlib.h>
@@ -47,6 +49,7 @@
 
 #include "worker.hh"
 #include "drv.hh"
+#include "prefix-logger.hh"
 #include "response.hh"
 #include "buffered-io.hh"
 #include "eval-args.hh"
@@ -318,7 +321,8 @@ auto shouldRestart(const MyArgs &args) -> bool {
 
 auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
                        nix::AutoCloseFD &toParent, nix::Bindings &autoArgs,
-                       nix::Value *vRoot, MyArgs &args) -> bool {
+                       nix::Value *vRoot, MyArgs &args,
+                       PrefixLogger *prefixLogger) -> bool {
     /* Wait for the collector to send us a job name. */
     if (tryWriteLine(toParent.get(), "next") < 0) {
         return false; // main process died
@@ -337,6 +341,8 @@ auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
 
     auto path = nlohmann::json::parse(line.substr(3));
     auto attrPathS = attrPathJoin(path);
+    prefixLogger->setAttrPath(attrPathS);
+    Finally const clearPrefix([&] -> void { prefixLogger->setAttrPath(""); });
 
     /* Evaluate it and send info back to the collector. */
     Response::Payload payload = [&]() -> Response::Payload {
@@ -360,13 +366,13 @@ auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
             auto msg = oss.str();
 
             // Print to STDERR for Hydra UI
-            std::cerr << msg << "\n";
+            std::cerr << attrPathS << ": " << msg << "\n";
             return Response::Error{nix::filterANSIEscapes(msg, true)};
         } catch (const std::exception &e) {
             // FIXME: for some reason the catch block above doesn't trigger on
             // macOS (?)
             const auto *msg = e.what();
-            std::cerr << msg << '\n';
+            std::cerr << attrPathS << ": " << msg << '\n';
             return Response::Error{
                 .error = nix::filterANSIEscapes(msg, true),
                 // Nix 2.34 throws `StackOverflowError` whreas before, Nix
@@ -406,12 +412,16 @@ void worker(
         args.lookupPath, evalStore, nix::fetchSettings, nix::evalSettings);
     nix::Bindings &autoArgs = *args.getAutoArgs(*state);
 
+    auto prefixLogger = std::make_unique<PrefixLogger>(std::move(nix::logger));
+    auto *prefixLoggerPtr = prefixLogger.get();
+    nix::logger = std::move(prefixLogger);
+
     nix::Value *vRoot = initializeRootValue(state, autoArgs, args);
 
     LineReader fromReader(fromParent.release());
 
     while (processJobRequest(*state, fromReader, toParent, autoArgs, vRoot,
-                             args)) {
+                             args, prefixLoggerPtr)) {
         // Continue processing jobs until we need to exit
     }
 

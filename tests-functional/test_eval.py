@@ -523,6 +523,106 @@ def test_recursion_error() -> None:
         assert "max-call-depth exceeded" in result["error"]
 
 
+def assert_stderr_has(stderr: str, attr_path: str, message: str) -> None:
+    """Assert that stderr contains a block starting with ``attr_path: `` that contains *message*.
+
+    A block is the prefix line plus all subsequent indented continuation lines
+    (as produced by ``showErrorInfo``).
+    """
+    prefix = f"{attr_path}: "
+    lines = stderr.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith(prefix):
+            block_lines = [line]
+            for j in range(i + 1, len(lines)):
+                if lines[j] and not lines[j][0].isspace():
+                    break
+                block_lines.append(lines[j])
+            if message in "\n".join(block_lines):
+                return
+    relevant = [line for line in lines if attr_path in line or message in line]
+    raise AssertionError(
+        f"No stderr block starting with {prefix!r} contains {message!r}.\n"
+        f"Potentially relevant lines: {relevant!r}"
+    )
+
+
+def test_stderr_attr_prefix_on_eval_error() -> None:
+    """Test that stderr output from eval errors includes the attr path prefix."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.brokenPkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+    )
+    result = json.loads(res.stdout)
+    assert result["attr"] == "brokenPackage"
+    assert "this is an evaluation error" in result["error"]
+
+    assert_stderr_has(res.stderr, "brokenPackage", "this is an evaluation error")
+
+
+def test_stderr_attr_prefix_on_trace() -> None:
+    """Test that builtins.trace output includes the attr path prefix via PrefixLogger."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.tracePkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    result = json.loads(res.stdout)
+    assert result["attr"] == "traceJob"
+    assert result["name"] == "traceJob"
+
+    assert_stderr_has(res.stderr, "traceJob", "trace message from traceJob")
+
+
+def test_stderr_attr_prefix_nested_path() -> None:
+    """Test that nested attribute paths appear as full dotted paths in stderr prefixes."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.nestedPkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+    )
+    results = [json.loads(r) for r in res.stdout.split("\n") if r]
+
+    error_result = next(r for r in results if "error" in r)
+    assert error_result["attr"] == "nested.deep.brokenJob"
+    assert "nested evaluation error" in error_result["error"]
+
+    trace_result = next(r for r in results if r.get("name") == "nestedTraceJob")
+    assert trace_result["attr"] == "nested.deep.traceJob"
+
+    assert_stderr_has(res.stderr, "nested.deep.brokenJob", "nested evaluation error")
+    assert_stderr_has(res.stderr, "nested.deep.traceJob", "nested trace message")
+
+
 def test_no_instantiate_mode() -> None:
     """Test that --no-instantiate flag works correctly"""
     with TemporaryDirectory() as tempdir:
