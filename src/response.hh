@@ -24,6 +24,8 @@
 struct Response {
     std::string attr;                  // dot-joined attribute path
     std::vector<std::string> attrPath; // attribute path components
+    std::vector<std::string> traces;   // builtins.trace output during eval
+    std::vector<std::string> warnings; // warnings emitted during eval
 
     struct Job {
         Drv drv;

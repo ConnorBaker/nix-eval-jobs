@@ -5,15 +5,24 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 class PrefixLogger : public nix::Logger {
     std::unique_ptr<nix::Logger> wrapped;
     std::string attrPath;
+    std::vector<std::string> traceBuffer;
+    std::vector<std::string> warningBuffer;
 
   public:
+    struct Logs {
+        std::vector<std::string> traces;
+        std::vector<std::string> warnings;
+    };
+
     explicit PrefixLogger(std::unique_ptr<nix::Logger> wrapped);
 
     void setAttrPath(std::string path);
+    auto drainLogs() -> Logs;
 
     void stop() override;
     void pause() override;

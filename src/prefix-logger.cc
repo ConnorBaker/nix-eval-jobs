@@ -4,15 +4,28 @@
 #include <memory>
 #include <nix/util/error.hh>
 #include <nix/util/logging.hh>
+#include <nix/util/terminal.hh>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 PrefixLogger::PrefixLogger(std::unique_ptr<nix::Logger> wrapped)
     : wrapped(std::move(wrapped)) {}
 
 void PrefixLogger::setAttrPath(std::string path) { attrPath = std::move(path); }
+
+auto PrefixLogger::drainLogs() -> Logs {
+    Logs logs{
+        .traces = std::move(traceBuffer),
+        .warnings = std::move(warningBuffer),
+    };
+    traceBuffer.clear();
+    warningBuffer.clear();
+    return logs;
+}
 
 void PrefixLogger::stop() { wrapped->stop(); }
 void PrefixLogger::pause() { wrapped->pause(); }
@@ -20,17 +33,24 @@ void PrefixLogger::resume() { wrapped->resume(); }
 auto PrefixLogger::isVerbose() -> bool { return wrapped->isVerbose(); }
 
 void PrefixLogger::log(nix::Verbosity lvl, std::string_view msg) {
-    if (attrPath.empty()) {
-        wrapped->log(lvl, msg);
-    } else {
+    if (!attrPath.empty()) {
+        auto filtered = nix::filterANSIEscapes(msg, true);
+        if (filtered.starts_with("trace:")) {
+            traceBuffer.emplace_back(std::move(filtered));
+        } else {
+            warningBuffer.emplace_back(std::move(filtered));
+        }
         wrapped->log(lvl, std::format("{}: {}", attrPath, msg));
+    } else {
+        wrapped->log(lvl, msg);
     }
 }
 
 void PrefixLogger::logEI(const nix::ErrorInfo &info) {
-    if (attrPath.empty()) {
-        wrapped->logEI(info);
-    } else {
+    if (!attrPath.empty()) {
+        std::ostringstream oss;
+        nix::showErrorInfo(oss, info, nix::loggerSettings.showTrace.get());
+        warningBuffer.emplace_back(nix::filterANSIEscapes(oss.str(), true));
         auto modified = info;
         modified.traces.push_front(nix::Trace{
             .pos = {},
@@ -38,6 +58,8 @@ void PrefixLogger::logEI(const nix::ErrorInfo &info) {
             .print = nix::TracePrint::Always,
         });
         wrapped->logEI(modified);
+    } else {
+        wrapped->logEI(info);
     }
 }
 

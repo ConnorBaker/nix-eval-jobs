@@ -219,6 +219,8 @@ INSTANTIATE_TEST_SUITE_P(
             Response{
                 .attr = "hello",
                 .attrPath = {"hello"},
+                .traces = {},
+                .warnings = {},
                 .payload =
                     Response::Job{
                         .drv =
@@ -247,6 +249,8 @@ INSTANTIATE_TEST_SUITE_P(
             Response{
                 .attr = "pkg",
                 .attrPath = {"pkg"},
+                .traces = {},
+                .warnings = {},
                 .payload =
                     Response::Job{
                         .drv =
@@ -280,6 +284,8 @@ INSTANTIATE_TEST_SUITE_P(
             Response{
                 .attr = "pkgs",
                 .attrPath = {"pkgs"},
+                .traces = {},
+                .warnings = {},
                 .payload = Response::Attrs{.attrs = {"foo", "bar", "baz"}},
             },
         },
@@ -288,6 +294,48 @@ INSTANTIATE_TEST_SUITE_P(
             Response{
                 .attr = "broken",
                 .attrPath = {"broken"},
+                .traces = {},
+                .warnings = {},
+                .payload = Response::Error{.error = "evaluation failed"},
+            },
+        },
+        std::pair{
+            "job-with-traces",
+            Response{
+                .attr = "traced",
+                .attrPath = {"traced"},
+                .traces = {"trace: some debug info"},
+                .warnings = {},
+                .payload =
+                    Response::Job{
+                        .drv =
+                            Drv{
+                                .name = "traced",
+                                .storeDir = "/nix/store",
+                                .system = "x86_64-linux",
+                                .drvPath = {"00000000000000000000000000000000-"
+                                            "traced.drv"},
+                                .outputs = {{"out",
+                                             nix::StorePath{
+                                                 "00000000000000000000000000000"
+                                                 "000-traced",
+                                             }}},
+                                .neededBuilds = {},
+                                .neededSubstitutes = {},
+                                .unknownPaths = {},
+                                .constituents = {},
+                            },
+                        .extraValue = std::nullopt,
+                    },
+            },
+        },
+        std::pair{
+            "error-with-warnings",
+            Response{
+                .attr = "warned",
+                .attrPath = {"warned"},
+                .traces = {},
+                .warnings = {"warning: deprecated feature used"},
                 .payload = Response::Error{.error = "evaluation failed"},
             },
         }));

@@ -65,6 +65,20 @@
             ];
           });
         };
+        traceAndErrorPkgs = {
+          traceAndError = builtins.trace "trace before error" (throw "error after trace");
+        };
+        warnPkgs = {
+          warnJob = builtins.warn "warning from warnJob" (derivation {
+            name = "warnJob";
+            inherit system;
+            builder = "/bin/sh";
+            args = [
+              "-c"
+              "echo done > $out"
+            ];
+          });
+        };
         nestedPkgs = {
           nested = {
             recurseForDerivations = true;

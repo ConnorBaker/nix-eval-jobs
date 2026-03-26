@@ -1,0 +1,11 @@
+{
+  "attr": "warned",
+  "attrPath": [
+    "warned"
+  ],
+  "error": "evaluation failed",
+  "fatal": false,
+  "warnings": [
+    "warning: deprecated feature used"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "attr": "traced",
+  "attrPath": [
+    "traced"
+  ],
+  "constituents": [],
+  "drvPath": "/nix/store/00000000000000000000000000000000-traced.drv",
+  "globConstituents": false,
+  "name": "traced",
+  "namedConstituents": [],
+  "outputs": {
+    "out": "/nix/store/00000000000000000000000000000000-traced"
+  },
+  "storeDir": "/nix/store",
+  "system": "x86_64-linux",
+  "traces": [
+    "trace: some debug info"
+  ]
+}

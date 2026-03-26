@@ -623,6 +623,126 @@ def test_stderr_attr_prefix_nested_path() -> None:
     assert_stderr_has(res.stderr, "nested.deep.traceJob", "nested trace message")
 
 
+def test_json_traces_field() -> None:
+    """Test that builtins.trace output appears in the JSON traces field."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.tracePkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    result = json.loads(res.stdout)
+    assert result["attr"] == "traceJob"
+    assert "traces" in result
+    assert any("trace message from traceJob" in t for t in result["traces"])
+    assert "warnings" not in result
+
+
+def test_json_warnings_field() -> None:
+    """Test that builtins.warn output appears in the JSON warnings field."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.warnPkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    result = json.loads(res.stdout)
+    assert result["attr"] == "warnJob"
+    assert "warnings" in result
+    assert any("warning from warnJob" in w for w in result["warnings"])
+    assert "traces" not in result
+
+
+def test_json_error_no_traces() -> None:
+    """Test that error responses omit empty traces/warnings fields."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.brokenPkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+    )
+    result = json.loads(res.stdout)
+    assert "error" in result
+    assert "traces" not in result
+    assert "warnings" not in result
+
+
+def test_json_nested_traces() -> None:
+    """Test that nested attributes have per-attribute traces in JSON."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.nestedPkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+    )
+    results = [json.loads(r) for r in res.stdout.split("\n") if r]
+
+    trace_result = next(r for r in results if r.get("name") == "nestedTraceJob")
+    assert "traces" in trace_result
+    assert any("nested trace message" in t for t in trace_result["traces"])
+
+    error_result = next(r for r in results if "error" in r)
+    assert "traces" not in error_result
+
+
+def test_json_traces_with_error() -> None:
+    """Test that an error response can also carry traces from before the error."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.traceAndErrorPkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+    )
+    result = json.loads(res.stdout)
+    assert result["attr"] == "traceAndError"
+    assert "error" in result
+    assert "error after trace" in result["error"]
+    assert "traces" in result
+    assert any("trace before error" in t for t in result["traces"])
+
+
 def test_no_instantiate_mode() -> None:
     """Test that --no-instantiate flag works correctly"""
     with TemporaryDirectory() as tempdir:

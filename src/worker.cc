@@ -386,9 +386,13 @@ auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
         }
     }();
 
+    auto logs = prefixLogger->drainLogs();
+
     Response const response{
         .attr = attrPathS,
         .attrPath = path.get<std::vector<std::string>>(),
+        .traces = std::move(logs.traces),
+        .warnings = std::move(logs.warnings),
         .payload = std::move(payload),
     };
     nlohmann::json const reply = response;
