@@ -366,13 +366,21 @@ auto processJobRequest(nix::EvalState &state, LineReader &fromReader,
             auto msg = oss.str();
 
             // Print to STDERR for Hydra UI
-            std::cerr << attrPathS << ": " << msg << "\n";
+            if (args.logAttrPrefix) {
+                std::cerr << attrPathS << ": " << msg << "\n";
+            } else {
+                std::cerr << msg << "\n";
+            }
             return Response::Error{nix::filterANSIEscapes(msg, true)};
         } catch (const std::exception &e) {
             // FIXME: for some reason the catch block above doesn't trigger on
             // macOS (?)
             const auto *msg = e.what();
-            std::cerr << attrPathS << ": " << msg << '\n';
+            if (args.logAttrPrefix) {
+                std::cerr << attrPathS << ": " << msg << '\n';
+            } else {
+                std::cerr << msg << '\n';
+            }
             return Response::Error{
                 .error = nix::filterANSIEscapes(msg, true),
                 // Nix 2.34 throws `StackOverflowError` whreas before, Nix
@@ -416,7 +424,8 @@ void worker(
         args.lookupPath, evalStore, nix::fetchSettings, nix::evalSettings);
     nix::Bindings &autoArgs = *args.getAutoArgs(*state);
 
-    auto prefixLogger = std::make_unique<PrefixLogger>(std::move(nix::logger));
+    auto prefixLogger = std::make_unique<PrefixLogger>(std::move(nix::logger),
+                                                       args.logAttrPrefix);
     auto *prefixLoggerPtr = prefixLogger.get();
     nix::logger = std::move(prefixLogger);
 

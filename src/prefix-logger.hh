@@ -10,6 +10,7 @@
 class PrefixLogger : public nix::Logger {
     std::unique_ptr<nix::Logger> wrapped;
     std::string attrPath;
+    bool prefixStderr;
     std::vector<std::string> traceBuffer;
     std::vector<std::string> warningBuffer;
 
@@ -19,7 +20,8 @@ class PrefixLogger : public nix::Logger {
         std::vector<std::string> warnings;
     };
 
-    explicit PrefixLogger(std::unique_ptr<nix::Logger> wrapped);
+    explicit PrefixLogger(std::unique_ptr<nix::Logger> wrapped,
+                          bool prefixStderr);
 
     void setAttrPath(std::string path);
     auto drainLogs() -> Logs;

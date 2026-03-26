@@ -12,8 +12,9 @@
 #include <utility>
 #include <vector>
 
-PrefixLogger::PrefixLogger(std::unique_ptr<nix::Logger> wrapped)
-    : wrapped(std::move(wrapped)) {}
+PrefixLogger::PrefixLogger(std::unique_ptr<nix::Logger> wrapped,
+                           bool prefixStderr)
+    : wrapped(std::move(wrapped)), prefixStderr(prefixStderr) {}
 
 void PrefixLogger::setAttrPath(std::string path) { attrPath = std::move(path); }
 
@@ -40,7 +41,11 @@ void PrefixLogger::log(nix::Verbosity lvl, std::string_view msg) {
         } else {
             warningBuffer.emplace_back(std::move(filtered));
         }
-        wrapped->log(lvl, std::format("{}: {}", attrPath, msg));
+        if (prefixStderr) {
+            wrapped->log(lvl, std::format("{}: {}", attrPath, msg));
+        } else {
+            wrapped->log(lvl, msg);
+        }
     } else {
         wrapped->log(lvl, msg);
     }
@@ -51,13 +56,18 @@ void PrefixLogger::logEI(const nix::ErrorInfo &info) {
         std::ostringstream oss;
         nix::showErrorInfo(oss, info, nix::loggerSettings.showTrace.get());
         warningBuffer.emplace_back(nix::filterANSIEscapes(oss.str(), true));
-        auto modified = info;
-        modified.traces.push_front(nix::Trace{
-            .pos = {},
-            .hint = nix::HintFmt("while evaluating attribute '%s'", attrPath),
-            .print = nix::TracePrint::Always,
-        });
-        wrapped->logEI(modified);
+        if (prefixStderr) {
+            auto modified = info;
+            modified.traces.push_front(nix::Trace{
+                .pos = {},
+                .hint =
+                    nix::HintFmt("while evaluating attribute '%s'", attrPath),
+                .print = nix::TracePrint::Always,
+            });
+            wrapped->logEI(modified);
+        } else {
+            wrapped->logEI(info);
+        }
     } else {
         wrapped->logEI(info);
     }
@@ -67,12 +77,12 @@ void PrefixLogger::startActivity(nix::ActivityId act, nix::Verbosity lvl,
                                  nix::ActivityType type,
                                  const std::string &text, const Fields &fields,
                                  nix::ActivityId parent) {
-    if (attrPath.empty()) {
-        wrapped->startActivity(act, lvl, type, text, fields, parent);
-    } else {
+    if (!attrPath.empty() && prefixStderr) {
         wrapped->startActivity(act, lvl, type,
                                std::format("{}: {}", attrPath, text), fields,
                                parent);
+    } else {
+        wrapped->startActivity(act, lvl, type, text, fields, parent);
     }
 }
 

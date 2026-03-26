@@ -204,6 +204,19 @@ MyArgs::MyArgs() : MixCommonArgs("nix-eval-jobs") {
     });
 
     addFlag({
+        .longName = "log-attr-prefix",
+        .aliases = {},
+        .shortName = 0,
+        .description = "prefix stderr log lines with the attribute path that "
+                       "produced them",
+        .category = "",
+        .labels = {},
+        .handler = {&logAttrPrefix, true},
+        .completer = nullptr,
+        .experimentalFeature = std::nullopt,
+    });
+
+    addFlag({
         .longName = "expr",
         .aliases = {},
         .shortName = 'E',

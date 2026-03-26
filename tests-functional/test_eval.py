@@ -548,11 +548,12 @@ def assert_stderr_has(stderr: str, attr_path: str, message: str) -> None:
 
 
 def test_stderr_attr_prefix_on_eval_error() -> None:
-    """Test that stderr output from eval errors includes the attr path prefix."""
+    """Test that --log-attr-prefix adds the attr path prefix to stderr errors."""
     cmd = [
         str(BIN),
         "--workers",
         "1",
+        "--log-attr-prefix",
         *COMMON_FLAGS,
         "--flake",
         ".#legacyPackages.x86_64-linux.brokenPkgs",
@@ -571,11 +572,12 @@ def test_stderr_attr_prefix_on_eval_error() -> None:
 
 
 def test_stderr_attr_prefix_on_trace() -> None:
-    """Test that builtins.trace output includes the attr path prefix via PrefixLogger."""
+    """Test that --log-attr-prefix adds the attr path prefix to trace output."""
     cmd = [
         str(BIN),
         "--workers",
         "1",
+        "--log-attr-prefix",
         *COMMON_FLAGS,
         "--flake",
         ".#legacyPackages.x86_64-linux.tracePkgs",
@@ -594,12 +596,36 @@ def test_stderr_attr_prefix_on_trace() -> None:
     assert_stderr_has(res.stderr, "traceJob", "trace message from traceJob")
 
 
-def test_stderr_attr_prefix_nested_path() -> None:
-    """Test that nested attribute paths appear as full dotted paths in stderr prefixes."""
+def test_stderr_no_prefix_by_default() -> None:
+    """Test that stderr is NOT prefixed without --log-attr-prefix."""
     cmd = [
         str(BIN),
         "--workers",
         "1",
+        *COMMON_FLAGS,
+        "--flake",
+        ".#legacyPackages.x86_64-linux.tracePkgs",
+    ]
+    res = subprocess.run(
+        cmd,
+        cwd=TEST_ROOT.joinpath("assets"),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    for line in res.stderr.splitlines():
+        assert not line.startswith("traceJob: "), (
+            f"Stderr should not be prefixed without --log-attr-prefix: {line!r}"
+        )
+
+
+def test_stderr_attr_prefix_nested_path() -> None:
+    """Test that --log-attr-prefix works with nested dotted attribute paths."""
+    cmd = [
+        str(BIN),
+        "--workers",
+        "1",
+        "--log-attr-prefix",
         *COMMON_FLAGS,
         "--flake",
         ".#legacyPackages.x86_64-linux.nestedPkgs",
